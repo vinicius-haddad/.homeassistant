@@ -1,0 +1,26 @@
+2017-08-14 07:20:14 WARNING (MainThread) [homeassistant.components.updater] Running on 'dev', only analytics will be submitted
+2017-08-14 07:55:38 ERROR (MainThread) [homeassistant.core] Timer got out of sync. Resetting
+2017-08-14 07:55:39 WARNING (MainThread) [hbmqtt.broker] [MQTT-3.1.0-1] (client @=127.0.0.1:52965): Can't read first packet an CONNECT: No more data
+2017-08-14 07:55:43 ERROR (MainThread) [homeassistant.core] Error doing job: Task exception was never retrieved
+Traceback (most recent call last):
+  File "/usr/lib/python3.5/asyncio/tasks.py", line 241, in _step
+    result = coro.throw(exc)
+  File "/home/vinicius/projects/home-assistant/homeassistant/components/discovery.py", line 124, in scan_devices
+    results = yield from hass.async_add_job(_discover, netdisco)
+  File "/usr/lib/python3.5/asyncio/futures.py", line 361, in __iter__
+    yield self  # This tells Task to wait for completion.
+  File "/usr/lib/python3.5/asyncio/tasks.py", line 296, in _wakeup
+    future.result()
+  File "/usr/lib/python3.5/asyncio/futures.py", line 274, in result
+    raise self._exception
+  File "/usr/lib/python3.5/concurrent/futures/thread.py", line 55, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "/home/vinicius/projects/home-assistant/homeassistant/components/discovery.py", line 150, in _discover
+    netdisco.scan()
+  File "/home/vinicius/projects/home-assistant/venv/lib/python3.5/site-packages/netdisco/discovery.py", line 60, in scan
+    self.gdm.scan()
+  File "/home/vinicius/projects/home-assistant/venv/lib/python3.5/site-packages/netdisco/gdm.py", line 21, in scan
+    self.update()
+  File "/home/vinicius/projects/home-assistant/venv/lib/python3.5/site-packages/netdisco/gdm.py", line 76, in update
+    sock.sendto(gdm_msg, (gdm_ip, gdm_port))
+OSError: [Errno 101] Network is unreachable
