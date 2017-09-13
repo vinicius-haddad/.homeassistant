@@ -1,3 +1,4 @@
 home-assistant.log
 
 .vscode
+__pycache__/

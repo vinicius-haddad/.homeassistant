@@ -45,24 +45,29 @@ conversation:
 # Enables support for tracking state changes over time.
 history:
 
+influxdb:
+  username: hass
+  password: hass
+
 # View all events in a logbook
 logbook:
 
 # Track the sun
-sun:
+# sun:
 
 # Weather Prediction
-sensor:
-  platform: yr
+# sensor:
+  # platform: yr
 
 # Text to speech
-tts:
-  platform: google
+# tts:
+  # platform: google
 
 group: !include groups.yaml
 automation: !include automations.yaml
 
-hello_state:
-
 hello_mqtt:
   topic: hello_mqtt/topic/here/now
+
+hello_coap:
+  resource: hello_coap/first_measurement
