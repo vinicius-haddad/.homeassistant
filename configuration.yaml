@@ -66,8 +66,5 @@ logbook:
 group: !include groups.yaml
 automation: !include automations.yaml
 
-hello_mqtt:
-  topic: hello_mqtt/topic/here/now
-
 hello_coap:
   resource: hello_coap/first_measurement

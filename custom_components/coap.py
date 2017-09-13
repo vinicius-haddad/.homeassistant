@@ -33,7 +33,7 @@ from homeassistant.const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-REQUIREMENTS = ['CoAPthon']
+REQUIREMENTS = ['CoAPthon=4.0.1']
 DOMAIN = 'coap'
 
 DATA_COAP = 'coap'
@@ -50,10 +50,9 @@ CONF_QOS = 'qos'
 PROTOCOL_31 = '3.1'
 PROTOCOL_311 = '3.1.1'
 
-DEFAULT_PORT = 1883
-DEFAULT_KEEPALIVE = 60
+DEFAULT_HOST = '0.0.0.0'
+DEFAULT_PORT = 8765
 DEFAULT_QOS = 0
-DEFAULT_PROTOCOL = PROTOCOL_311
 DEFAULT_DISCOVERY = False
 DEFAULT_DISCOVERY_PREFIX = 'homeassistant'
 DEFAULT_TLS_PROTOCOL = 'auto'
@@ -70,7 +69,7 @@ def valid_resource_name(value, invalid_chars='\0'):
     value = cv.string(value)
     if all(c not in value for c in invalid_chars):
         return vol.Length(min=1, max=65535)(value)
-    raise vol.Invalid('Invalid MQTT topic name')
+    raise vol.Invalid('Invalid CoAP resource name')
 
 def valid_discovery_resource(value):
     """Validate a discovery topic."""
@@ -86,7 +85,7 @@ COAP_WILL_BIRTH_SCHEMA = vol.Schema({
 
 CONFIG_SCHEMA = vol.Schema({
 	DOMAIN: vol.Schema({
-		vol.Optional(CONF_HOST): cv.string,
+		vol.Optional(CONF_HOST, default= DEFAULT_HOST): cv.string,
 		vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
 		vol.Optional(CONF_WILL_MESSAGE): COAP_WILL_BIRTH_SCHEMA,
 		vol.Optional(CONF_BIRTH_MESSAGE): COAP_WILL_BIRTH_SCHEMA,
@@ -110,39 +109,33 @@ def async_setup(hass, config):
 	port= conf.get(CONF_PORT)
 	will_message= conf.get(CONF_WILL_MESSAGE)
 	birth_message= conf.get(CONF_BIRTH_MESSAGE)
-	discovery= conf.get(CONF_DISCOVERY)
 	discovery_prefix= conf.get(CONF_DISCOVERY_PREFIX)
 	
 	try:
-		hass.data[DATA_COAP]= CoAP(hass, '0.0.0.0', 8765)
+		hass.data[DATA_COAP]= CoAP(hass, host, port, will_message
+															birth_message, discovery, discovery_prefix)
 	except socket.gaierror:
-		_LOGGER.error("Cannot initialize CoAP client. Checkout your configs")
+		_LOGGER.exception("Cannot initialize CoAP client. Checkout your configs")
 		return False
 	
 	@asyncio.coroutine
-	def async_stop_mqtt(event):
+	def async_stop_coap(event):
 		yield from hass.data[DATA_MQTT].stop()
 
-	hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_stop_mqtt)
+	hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_stop_coap)
 
-	# if conf.get(CONF_DISCOVERY):
-		# yield from async_setup_discovery(hass, config)
+	if conf.get(CONF_DISCOVERY):
+		yield from _async_setup_discovery(hass, config)
 
 	return True
 
-  # @asyncio.coroutine
-  # def async_stop_coap(event):
-    
-  # @asyncio.coroutine
-  # def async_setup_discovery(call):
-
 class CoAP(object):
-  def __init__(self, hass, host, port):
+  def __init__(self, hass, host, port, will_message, birth_message, discovery, discovery_prefix):
 	  self.client= HelperClient(server=(host, port))
 	  self.hass= hass
 	  
   @asyncio.coroutine
-  def listen(self, resource, qos):
+  def listen(self, resource, time_interval, qos):
   	self.client.send_request(message, client_callback)
 
   	def client_callback(self, msg):
