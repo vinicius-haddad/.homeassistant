@@ -15,6 +15,7 @@ import ssl
 import re
 import requests.certs
 
+import pdb
 import voluptuous as vol
 
 from homeassistant.core import callback
@@ -23,8 +24,9 @@ from homeassistant.config import load_yaml_config_file
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.loader import bind_hass
 from homeassistant.helpers import template, config_validation as cv
+from homeassistant.helpers.event import track_time_interval
 from homeassistant.helpers.dispatcher import (
-    async_dispatcher_connect, dispatcher_send)
+	 async_dispatcher_connect, dispatcher_send)
 from homeassistant.util.async import (
     run_coroutine_threadsafe, run_callback_threadsafe)
 from homeassistant.const import (
@@ -33,7 +35,7 @@ from homeassistant.const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-REQUIREMENTS = ['CoAPthon=4.0.1']
+REQUIREMENTS = ['CoAPthon==4.0.1']
 DOMAIN = 'coap'
 
 DATA_COAP = 'coap'
@@ -42,9 +44,13 @@ SIGNAL_COAP_MESSAGE_RECEIVED = 'coap_message_received'
 
 CONF_HOST = 'host'
 CONF_DISCOVERY = 'discovery'
+CONF_RESOURCES = 'resources'
 CONF_DISCOVERY_PREFIX = 'discovery_prefix'
 CONF_BIRTH_MESSAGE = 'birth_message'
 CONF_WILL_MESSAGE = 'will_message'
+
+CONF_PATH = 'path'
+CONF_TIME_INTERVAL = 'time_interval'
 CONF_QOS = 'qos'
 
 PROTOCOL_31 = '3.1'
@@ -52,6 +58,7 @@ PROTOCOL_311 = '3.1.1'
 
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_PORT = 8765
+DEFAULT_TIME_INTERVAL = 1
 DEFAULT_QOS = 0
 DEFAULT_DISCOVERY = False
 DEFAULT_DISCOVERY_PREFIX = 'homeassistant'
@@ -77,29 +84,55 @@ def valid_discovery_resource(value):
 
 _VALID_QOS_SCHEMA = vol.All(vol.Coerce(int), vol.In([0, 1, 2]))
 
-COAP_WILL_BIRTH_SCHEMA = vol.Schema({
+_COAP_WILL_BIRTH_SCHEMA = vol.Schema({
 	vol.Required(ATTR_RESOURCE): valid_resource_name,
 	vol.Required(ATTR_PAYLOAD, CONF_PAYLOAD): cv.string,
 	vol.Optional(ATTR_QOS, default=DEFAULT_QOS): _VALID_QOS_SCHEMA,
 }, required=True)
 
+_COAP_RESOURCES_SCHEMA = vol.Schema([{
+	vol.Required(CONF_PATH): valid_resource_name,
+	vol.Optional(CONF_TIME_INTERVAL, default= DEFAULT_TIME_INTERVAL): cv.string,
+	vol.Optional(CONF_QOS, default= DEFAULT_QOS): _VALID_QOS_SCHEMA
+}])
+
 CONFIG_SCHEMA = vol.Schema({
 	DOMAIN: vol.Schema({
+		vol.Optional(CONF_RESOURCES): _COAP_RESOURCES_SCHEMA,
 		vol.Optional(CONF_HOST, default= DEFAULT_HOST): cv.string,
 		vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-		vol.Optional(CONF_WILL_MESSAGE): COAP_WILL_BIRTH_SCHEMA,
-		vol.Optional(CONF_BIRTH_MESSAGE): COAP_WILL_BIRTH_SCHEMA,
+		vol.Optional(CONF_WILL_MESSAGE): _COAP_WILL_BIRTH_SCHEMA,
+		vol.Optional(CONF_BIRTH_MESSAGE): _COAP_WILL_BIRTH_SCHEMA,
 		vol.Optional(CONF_DISCOVERY, default=DEFAULT_DISCOVERY): cv.boolean,
 		vol.Optional(CONF_DISCOVERY_PREFIX, default=DEFAULT_DISCOVERY_PREFIX): valid_discovery_resource,
 	}),
 }, extra=vol.ALLOW_EXTRA)
 
 @bind_hass
-def listen(hass, resource, msg_callback, qos= DEFAULT_QOS):
-	hass.data[DATA_COAP].listen(resource, qos)
+def listen_resource(hass, resource, callback= None):
+	pdb.set_trace()
+
+	""" listen an resource """
+	@callback
+	def async_coap_listener(resource, payload):
+		hass.async_run_job(callback, resource, payload)
+
+
+	async_remove = async_dispatcher_connect(hass, SIGNAL_COAP_MESSAGE_RECEIVED, async_coap_listener)
+
+	yield from hass.data[DATA_COAP].async_listen_resource(resource)
+	return async_remove
+
+
+@asyncio.coroutine
+def _async_discovery(hass, config):
+	yield from hass.data[DATA_COAP].discover()
+	_LOGGER("Discovering resources on %s:%s" % (conf.get(CONF_HOST), conf.get(CONF_PORT)))
+
 
 @asyncio.coroutine
 def async_setup(hass, config):
+
 	conf= config.get(DOMAIN)
 
 	if conf is None:
@@ -112,33 +145,67 @@ def async_setup(hass, config):
 	discovery_prefix= conf.get(CONF_DISCOVERY_PREFIX)
 	
 	try:
-		hass.data[DATA_COAP]= CoAP(hass, host, port, will_message
-															birth_message, discovery, discovery_prefix)
+		hass.data[DATA_COAP]= CoAP(hass, host, port, will_message, birth_message, discovery_prefix)
 	except socket.gaierror:
 		_LOGGER.exception("Cannot initialize CoAP client. Checkout your configs")
 		return False
 	
 	@asyncio.coroutine
 	def async_stop_coap(event):
-		yield from hass.data[DATA_MQTT].stop()
+		yield from hass.data[DATA_COAP].stop()
 
 	hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_stop_coap)
 
 	if conf.get(CONF_DISCOVERY):
-		yield from _async_setup_discovery(hass, config)
+		yield from _async_discovery(hass, config)
 
 	return True
 
 class CoAP(object):
-  def __init__(self, hass, host, port, will_message, birth_message, discovery, discovery_prefix):
-	  self.client= HelperClient(server=(host, port))
-	  self.hass= hass
+	def __init__(self, hass, host, port, will_message, birth_message, discovery_prefix):
+		self.client= HelperClient(server=(host, port))
+		self.hass= hass
+		self.will_message= will_message
+		self.birth_message= birth_message
+		self.discovery_prefix= discovery_prefix
+		self.resources= []
 	  
-  @asyncio.coroutine
-  def listen(self, resource, time_interval, qos):
-  	self.client.send_request(message, client_callback)
+	@asyncio.coroutine
+	def get(self, resource, time_interval, qos):
+		if resource not in self.resources:
+			_LOGGER("COAP warning: Trying to get an resource not listenned: %s" % resource.get('path'))
+			return
 
-  	def client_callback(self, msg):
-  		dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, msg.resource, msg.payload, msg.qos)
+		def client_callback(self, msg):
+			dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, msg.resource, msg.payload, msg.qos)
+
+		self.client.get(resource, client_callback)
+
+	@asyncio.coroutine
+	def discover(self, callback= None, timeout= None):
+		if callback is not None:
+			self.client.discover(callback, timeout)
+		else:
+			def set_resources_from_discover(resources):
+				for res in resources:
+					if res not in self.resources:
+						self.async_listen(res)
+			self.client.discover(set_resources_from_discover)
+
+		self.resources= list(set(self.resources).union(resources))
+
+	@asyncio.coroutine
+	def stop(self):
+		self.client.stop()
 
 
+	def async_listen_resource(self, hass, resource):
+		if resource is None or resource in self.resources:
+			_LOGGER("COAP warning: Trying to listen an resource already set: %s" % resource.get('path'))
+			return
+
+		self.resources.append(resource)
+		time_interval = resource.get('time_interval', DEFAULT_TIME_INTERVAL)
+		qos = resource.get('qos', DEFAULT_QOS)
+		import pdb; pdb.set_trace()
+		track_time_interval(hass.data[DATA_COAP].get(resource['path'], qos), time_interval)

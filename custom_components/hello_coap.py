@@ -1,21 +1,24 @@
 import homeassistant.loader as loader
 
+import pdb
+
 DOMAIN = 'hello_coap'
 
 DEPENDENCIES = ['coap']
 
-CONF_RESOURCE = 'resource'
-DEFAULT_RESOURCE = 'home-assistant/hello_coap'
-
 def setup(hass, config):
   coap = loader.get_component('coap')
-  resource = config[DOMAIN].get('resource', DEFAULT_RESOURCE)
-  entity_id = 'hello_coap.birth_of_coap'
+  resource = config[DOMAIN].get('resource')
+  entity_id = resource['path'].replace("/", ".")
 
-  def birth_message(resource, payload, qos):
-    hass.states.set(entity_id, 'hello_coap initialized successfully')
+  # pdb.set_trace()
+
+  def print_payload(resource, payload):
+    print("Message received! %s" % entity_id)
     hass.states.set(entity_id, payload)
-  
-  coap.listen(hass, resource, birth_message)
+
+  pdb.set_trace()
+
+  coap.listen_resource(hass, resource, print_payload)
 
   return True
