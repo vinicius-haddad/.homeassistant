@@ -68,9 +68,9 @@ automation: !include automations.yaml
 
 coap:
   host: '0.0.0.0'
-  port: 8765
+  port: 5683
 
 hello_coap:
   resource: 
-    path: 'hello_coap/measurement'
+    path: 'basic/'
     time_interval: 1

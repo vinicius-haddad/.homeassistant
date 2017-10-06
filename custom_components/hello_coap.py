@@ -11,14 +11,13 @@ def setup(hass, config):
   resource = config[DOMAIN].get('resource')
   entity_id = resource['path'].replace("/", ".")
 
-  # pdb.set_trace()
-
-  def print_payload(resource, payload):
+  def print_payload(oqueqtemaquinessecallback):
     print("Message received! %s" % entity_id)
-    hass.states.set(entity_id, payload)
+    print("callback:\n\n%s\n\n" % oqueqtemaquinessecallback)
+    hass.states.set(entity_id, oqueqtemaquinessecallback)
 
-  pdb.set_trace()
-
-  coap.listen_resource(hass, resource, print_payload)
+  # pdb.set_trace()
+  # print("VAIIIIIIII\n\nVEEEEEEEEEEI\n")
+  coap.listen(hass, resource, print_payload)
 
   return True

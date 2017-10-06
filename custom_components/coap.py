@@ -108,21 +108,27 @@ CONFIG_SCHEMA = vol.Schema({
 	}),
 }, extra=vol.ALLOW_EXTRA)
 
+@asyncio.coroutine
 @bind_hass
-def listen_resource(hass, resource, callback= None):
-	pdb.set_trace()
-
+def async_listen(hass, resource, msg_callback):
 	""" listen an resource """
 	@callback
-	def async_coap_listener(resource, payload):
-		hass.async_run_job(callback, resource, payload)
+	def listen_callback(resource, payload):
+		hass.async_run_job(msg_callback, resource, payload)
 
+	async_remove = async_dispatcher_connect(hass, SIGNAL_COAP_MESSAGE_RECEIVED, listen_callback)
 
-	async_remove = async_dispatcher_connect(hass, SIGNAL_COAP_MESSAGE_RECEIVED, async_coap_listener)
-
-	yield from hass.data[DATA_COAP].async_listen_resource(resource)
+	yield from hass.data[DATA_COAP].async_listen(resource)
 	return async_remove
 
+@bind_hass
+def listen(hass, resource, callback= None):
+	async_remove = run_coroutine_threadsafe(async_listen(hass, resource, callback), hass.loop).result()
+
+	def remove():
+		run_callback_threadsafe(hass.loop, async_remove).result()
+
+	return remove
 
 @asyncio.coroutine
 def _async_discovery(hass, config):
@@ -163,6 +169,7 @@ def async_setup(hass, config):
 
 class CoAP(object):
 	def __init__(self, hass, host, port, will_message, birth_message, discovery_prefix):
+		print("GO coap\n")
 		self.client= HelperClient(server=(host, port))
 		self.hass= hass
 		self.will_message= will_message
@@ -172,12 +179,13 @@ class CoAP(object):
 	  
 	@asyncio.coroutine
 	def get(self, resource, time_interval, qos):
+		print("GET coap\n")
 		if resource not in self.resources:
 			_LOGGER("COAP warning: Trying to get an resource not listenned: %s" % resource.get('path'))
 			return
 
 		def client_callback(self, msg):
-			dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, msg.resource, msg.payload, msg.qos)
+			dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, msg.get('resource'), msg.get('payload'))
 
 		self.client.get(resource, client_callback)
 
@@ -198,14 +206,19 @@ class CoAP(object):
 	def stop(self):
 		self.client.stop()
 
-
-	def async_listen_resource(self, hass, resource):
+	@asyncio.coroutine
+	def async_listen(self, resource):
+		print("async_listen to coap resource\n")
 		if resource is None or resource in self.resources:
 			_LOGGER("COAP warning: Trying to listen an resource already set: %s" % resource.get('path'))
 			return
 
 		self.resources.append(resource)
+		path = resource.get('path')
 		time_interval = resource.get('time_interval', DEFAULT_TIME_INTERVAL)
 		qos = resource.get('qos', DEFAULT_QOS)
-		import pdb; pdb.set_trace()
-		track_time_interval(hass.data[DATA_COAP].get(resource['path'], qos), time_interval)
+		# pdb.set_trace()
+		while(True):
+			self.get(path, qos)
+			time.sleep(time_interval)
+		# track_time_interval(self.hass, self.hass.data[DATA_COAP].get(path, qos), time_interval)
