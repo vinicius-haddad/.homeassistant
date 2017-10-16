@@ -1,10 +1,10 @@
-from coapthon.client.helperclient import HelperClient
-from coapthon import defines
-from coapthon.messages.message import Message
-from coapthon.messages.option import Option
-from coapthon.messages.request import Request
-from coapthon.messages.response import Response
-from coapthon.serializer import Serializer
+# from coapthon.client.helperclient import HelperClient
+# from coapthon import defines
+# from coapthon.messages.message import Message
+# from coapthon.messages.option import Option
+# from coapthon.messages.request import Request
+# from coapthon.messages.response import Response
+# from coapthon.serializer import Serializer
 
 import asyncio
 import logging
@@ -14,9 +14,12 @@ import time
 import ssl
 import re
 import requests.certs
-
-import pdb
 import voluptuous as vol
+
+from datetime import timedelta
+from aiocoap import *
+
+from pdb import set_trace as bp
 
 from homeassistant.core import callback
 from homeassistant.setup import async_prepare_setup_platform
@@ -24,7 +27,7 @@ from homeassistant.config import load_yaml_config_file
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.loader import bind_hass
 from homeassistant.helpers import template, config_validation as cv
-from homeassistant.helpers.event import track_time_interval
+from homeassistant.helpers.event import track_time_interval, async_track_time_interval
 from homeassistant.helpers.dispatcher import (
 	 async_dispatcher_connect, dispatcher_send)
 from homeassistant.util.async import (
@@ -36,6 +39,7 @@ from homeassistant.const import (
 _LOGGER = logging.getLogger(__name__)
 
 REQUIREMENTS = ['CoAPthon==4.0.1']
+
 DOMAIN = 'coap'
 
 DATA_COAP = 'coap'
@@ -133,12 +137,11 @@ def listen(hass, resource, callback= None):
 @asyncio.coroutine
 def _async_discovery(hass, config):
 	yield from hass.data[DATA_COAP].discover()
-	_LOGGER("Discovering resources on %s:%s" % (conf.get(CONF_HOST), conf.get(CONF_PORT)))
+	_LOGGER.exception("Discovering resources on %s:%s" % (conf.get(CONF_HOST), conf.get(CONF_PORT)))
 
 
 @asyncio.coroutine
 def async_setup(hass, config):
-
 	conf= config.get(DOMAIN)
 
 	if conf is None:
@@ -152,44 +155,60 @@ def async_setup(hass, config):
 	
 	try:
 		hass.data[DATA_COAP]= CoAP(hass, host, port, will_message, birth_message, discovery_prefix)
+		yield from hass.data[DATA_COAP].async_set_protocol();
 	except socket.gaierror:
 		_LOGGER.exception("Cannot initialize CoAP client. Checkout your configs")
 		return False
 	
-	@asyncio.coroutine
-	def async_stop_coap(event):
-		yield from hass.data[DATA_COAP].stop()
+	# @asyncio.coroutine
+	# def async_stop_coap(event):
+	# 	yield from hass.data[DATA_COAP].stop()
 
-	hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_stop_coap)
+	# hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_stop_coap)
 
-	if conf.get(CONF_DISCOVERY):
-		yield from _async_discovery(hass, config)
+	# if conf.get(CONF_DISCOVERY):
+	# 	yield from _async_discovery(hass, config)
 
 	return True
 
 class CoAP(object):
 	def __init__(self, hass, host, port, will_message, birth_message, discovery_prefix):
-		print("GO coap\n")
-		self.client= HelperClient(server=(host, port))
+		self.client = "coap://{}:{}/".format(host, port)
 		self.hass= hass
 		self.will_message= will_message
 		self.birth_message= birth_message
 		self.discovery_prefix= discovery_prefix
 		self.resources= []
-	  
+		self.protocol = None
+
 	@asyncio.coroutine
-	def get(self, resource, time_interval, qos):
-		print("GET coap\n")
+	def async_set_protocol(self):
+		self.protocol = yield from Context.create_client_context()
+
+	# @asyncio.coroutine
+	def get(self, resource, qos):
 		if resource not in self.resources:
-			_LOGGER("COAP warning: Trying to get an resource not listenned: %s" % resource.get('path'))
+			_LOGGER.exception("COAP warning: Trying to get an resource not listenned: %s" % resource.get('path'))
 			return
 
-		def client_callback(self, msg):
-			dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, msg.get('resource'), msg.get('payload'))
-
-		self.client.get(resource, client_callback)
+		self.send_request('GET', resource.get('path'))
 
 	@asyncio.coroutine
+	def async_send_request(self, type, path, payload= None, timeout= None):
+		req_uri = self.client + formatted_path(path)
+		request = Message(code=set_code_type(type), uri=req_uri, payload= payload or '')
+
+		try:
+			response = yield from self.protocol.request(request).response
+		except Exception as e:
+			_raise_on_error(e)
+		else:
+			dispatcher_send(self.hass, SIGNAL_COAP_MESSAGE_RECEIVED, path, response.payload)
+			return response
+
+	def send_request(self, type, path, payload= None, timeout= None):
+		self.hass.add_job(self.async_send_request, type, path, payload, timeout)
+
 	def discover(self, callback= None, timeout= None):
 		if callback is not None:
 			self.client.discover(callback, timeout)
@@ -202,23 +221,43 @@ class CoAP(object):
 
 		self.resources= list(set(self.resources).union(resources))
 
-	@asyncio.coroutine
-	def stop(self):
-		self.client.stop()
 
 	@asyncio.coroutine
 	def async_listen(self, resource):
-		print("async_listen to coap resource\n")
 		if resource is None or resource in self.resources:
-			_LOGGER("COAP warning: Trying to listen an resource already set: %s" % resource.get('path'))
+			_LOGGER.exception("COAP warning: Trying to listen an resource already set: %s" % resource.get('path'))
 			return
 
 		self.resources.append(resource)
 		path = resource.get('path')
 		time_interval = resource.get('time_interval', DEFAULT_TIME_INTERVAL)
 		qos = resource.get('qos', DEFAULT_QOS)
-		# pdb.set_trace()
-		while(True):
-			self.get(path, qos)
-			time.sleep(time_interval)
-		# track_time_interval(self.hass, self.hass.data[DATA_COAP].get(path, qos), time_interval)
+
+		@callback
+		def get_cb(now):
+			self.get(resource, qos)
+
+		self.get(resource, qos)
+		async_track_time_interval(self.hass, get_cb, timedelta(seconds=time_interval))
+
+
+def set_code_type(type):
+	if(type== 'PUT'):
+		return PUT
+	elif(type== 'POST'):
+		return POST
+	elif(type== 'GET'):
+		return GET
+	elif(type== 'DELETE'):
+		return DELETE
+	else:
+		_LOGGER.exception("Unrecongizable coap verb: %s" % type)
+		raise
+
+def formatted_path(path):
+	return '/'.join(filter(None, path.split('/')))
+
+
+def _raise_on_error(e):
+  raise HomeAssistantError(
+	  'Error {} talking to CoAP: {}'.format(e.code, e.message))

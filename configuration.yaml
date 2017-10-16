@@ -1,6 +1,6 @@
 homeassistant:
   # Name of the location where Home Assistant is running
-  name: Home
+  name: AssistantLiving
   # Location required to calculate the time the sun rises and sets
   latitude: -23.7
   longitude: -46.55
@@ -40,7 +40,7 @@ updater:
 discovery:
 
 # Allows you to issue voice commands from the frontend in enabled browsers
-conversation:
+# conversation:
 
 # Enables support for tracking state changes over time.
 history:
@@ -50,27 +50,26 @@ influxdb:
   password: hass
 
 # View all events in a logbook
-logbook:
+# logbook:
 
 # Track the sun
 # sun:
 
 # Weather Prediction
-# sensor:
-  # platform: yr
 
 # Text to speech
 # tts:
-  # platform: google
+#   platform: google
 
-group: !include groups.yaml
-automation: !include automations.yaml
+# group: !include groups.yaml
+# sensor: !include sensors.yaml
+# automation: !include automations.yaml
 
 coap:
-  host: '0.0.0.0'
+  host: '127.0.0.1'
   port: 5683
 
 hello_coap:
   resource: 
-    path: 'basic/'
-    time_interval: 1
+    path: 'time'
+    time_interval: 2
