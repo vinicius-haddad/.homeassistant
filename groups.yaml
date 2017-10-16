@@ -1,0 +1,10 @@
+
+group:
+  Moradores:
+    entities:
+      - device_tracker.vinicius_g3
+  Quarto:
+    entities:
+      - light.luzes
+      - coap.temperatura
+      - coap.humidity

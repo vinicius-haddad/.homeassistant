@@ -1,0 +1,4 @@
+sensors:
+  platform: yr
+  display_optoins:
+    - 'time'
